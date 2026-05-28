@@ -4,11 +4,12 @@ Send the same chat message multiple times with a configurable delay.
 """
 
 import argparse
+import os
 import sys
 import time
 from playwright.sync_api import sync_playwright
 
-URL = "https://chat-4ff4.onrender.com/chat.html"
+URL = "https://bonfire-ho38.onrender.com/chat"
 
 
 def main():
@@ -17,7 +18,7 @@ def main():
     # 🔹 Single message
     parser.add_argument(
         "--message",
-        default="Hello from bot",
+        default="Wsg my blud",
         help="Message to send"
     )
 
@@ -38,20 +39,29 @@ def main():
     )
 
     parser.add_argument("--username", default="gabinator", help="Chat username")
-    parser.add_argument("--gate", default="yes", help="Gate value")
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("SESSION_TOKEN"),
+        help="Session token to use for x-session-token authentication"
+    )
     parser.add_argument("--headless", action="store_true", help="Run headless")
 
     args = parser.parse_args()
+
+    if not args.token:
+        print("Error: --token is required or set SESSION_TOKEN", file=sys.stderr)
+        sys.exit(1)
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=args.headless)
             context = browser.new_context()
 
-            # Inject sessionStorage BEFORE page loads
+            # Inject localStorage values before page loads
             context.add_init_script(f"""
-                sessionStorage.setItem('gate_passed', '{args.gate}');
-                sessionStorage.setItem('chat_username', '{args.username}');
+                localStorage.setItem('chat_username', '{args.username}');
+                localStorage.setItem('chat_token', '{args.token}');
+                localStorage.setItem('chat_isAdmin', 'no');
             """)
 
             page = context.new_page()
@@ -70,19 +80,21 @@ def main():
                 page.fill("#msg-input", args.message)
                 page.keyboard.press("Enter")
 
-                # API fallback
                 page.evaluate(
-                    """async (msg) => {
-                        await fetch('/api/messages', {
+                    """async ({ msg, token }) => {
+                        await fetch('/api/messages/global', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                username: sessionStorage.getItem('chat_username'),
-                                message: msg
-                            })
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-session-token': token,
+                                'Accept': '*/*',
+                                'Accept-Language': 'en,en-US;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+                                'Referer': 'https://bonfire-ho38.onrender.com/chat'
+                            },
+                            body: JSON.stringify({ message: msg })
                         });
                     }""",
-                    args.message
+                    { "msg": args.message, "token": args.token }
                 )
 
                 time.sleep(args.delay)
